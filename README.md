@@ -1,4 +1,4 @@
-# Bus and Riders Synchronization Problem
+# Senate Bus Stop Simulation
 
 This project implements the classic **Senate Bus** synchronization problem using Java. The scenario models a bus stop where riders arrive and wait for buses. When a bus arrives it can carry up to 50 riders; any additional riders must wait for the next bus. Riders arriving during the boarding process must also wait for the next bus. If a bus arrives when there are no waiting riders it departs immediately.
 
