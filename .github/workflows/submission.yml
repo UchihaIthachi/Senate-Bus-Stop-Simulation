@@ -5,8 +5,7 @@ on:
     workflows: ["Continuous Integration"]
     types:
       - completed
-    branches:
-      - main
+    branches: [main, test2]
 
 jobs:
   build:
