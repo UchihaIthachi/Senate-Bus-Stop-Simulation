@@ -11,7 +11,7 @@ PROMPT_COLOR = "#A3BE8C"  # A green-ish color for commands
 FONT_SIZE = 15
 LINE_SPACING = 5
 PADDING = 20
-MAX_IMAGE_HEIGHT = 4000  # Max height in pixels for one image part
+MAX_IMAGE_HEIGHT = 800  # Max height in pixels for one image part
 PROMPT = "$ "
 
 # --- Font Selection ---

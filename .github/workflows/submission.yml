@@ -17,7 +17,7 @@ jobs:
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
-          java-version: "11" # keep 11 if your project targets 11; use "17" if you prefer
+          java-version: "11"
           distribution: "temurin"
 
       - name: Ensure zip is available (usually preinstalled)
@@ -56,7 +56,9 @@ jobs:
         run: |
           cp -r src submission/
           cp README.txt submission/
+          cp Makefile submission/ || true
           cp output/screenshot_*.png submission/ || true
+          cp output/live_run.txt submission/logs.txt
 
       - name: Create submission zip
         run: |
