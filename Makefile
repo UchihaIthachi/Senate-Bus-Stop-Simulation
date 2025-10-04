@@ -25,7 +25,7 @@ run: compile
 
 # Runs a quick simulation for testing purposes
 test: compile
-	java -cp $(BIN_DIR) Main --riders 20 --buses 5 --meanRiderMs 100 --meanBusMs 500 --seed 42
+	java -cp $(BIN_DIR) Main --riders 2 --buses 1 --meanRiderMs 10 --meanBusMs 50 --seed 4
 
 # Remove compiled classes
 clean:

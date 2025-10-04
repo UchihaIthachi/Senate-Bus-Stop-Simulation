@@ -49,7 +49,7 @@ We combine a mutex with semaphores to coordinate shared state and timing:
 ## Project Structure
 
 ```
-CS4532Lab2/
+Senate-Bus-Stop-Simulation/
 ├── src/
 │   ├── Main.java      – Simulation entry point
 │   ├── BusStop.java   – Shared synchronization logic
