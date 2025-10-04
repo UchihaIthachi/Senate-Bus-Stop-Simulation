@@ -9,7 +9,8 @@ public class Logger {
      * @param message The message to log.
      */
     public static void log(String message) {
-        double elapsedSeconds = (System.nanoTime() - Main.START_TIME) / 1_000_000_000.0;
-        System.out.printf("[%t=%.3fs] %s%n", elapsedSeconds, message);
+        double s = (System.nanoTime() - Main.START_TIME) / 1_000_000_000.0;
+        String thread = Thread.currentThread().getName();
+        System.out.printf("[t=%.3fs][%s] %s%n", s, thread, message);
     }
 }
