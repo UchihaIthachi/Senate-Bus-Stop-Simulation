@@ -1,0 +1,10 @@
+# # Compiled Java classes
+# bin/
+
+# # Generated output files
+# output/
+
+# # Old patterns (for cleanup, can be removed later)
+# output.txt
+# screenshot.png
+# screenshot_*.png
