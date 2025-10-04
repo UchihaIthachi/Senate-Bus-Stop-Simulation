@@ -1,16 +1,14 @@
 name: Create Submission Zip
 
 on:
-  workflow_run:
-    workflows: ["Continuous Integration"]
-    types:
-      - completed
+  push:
     branches: [main, test2]
+  pull_request:
+    branches: [main]
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    if: github.event.workflow_run.conclusion == 'success'
 
     steps:
       - name: Checkout code
