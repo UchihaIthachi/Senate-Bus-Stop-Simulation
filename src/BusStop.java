@@ -1,9 +1,10 @@
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * BusStop models a shared bus stop where riders wait and buses arrive.
  * Synchronization between riders and buses is managed using semaphores
- * and a mutex to protect shared state.
+ * and a mutex to protect shared state. It also tracks metrics.
  */
 public class BusStop {
     private static final int BUS_CAPACITY = 50;
@@ -11,6 +12,10 @@ public class BusStop {
     private final Semaphore mutex = new Semaphore(1);
     private final Semaphore waitingRiders = new Semaphore(0);
     private final Semaphore allAboard = new Semaphore(0);
+
+    // Metrics tracking
+    private final AtomicInteger totalBoardedRiders = new AtomicInteger(0);
+    private int maxWaitingRiders = 0;
 
     /**
      * Called by a rider when they arrive at the bus stop. Increments
@@ -22,7 +27,10 @@ public class BusStop {
     public void riderArrives(int id) throws InterruptedException {
         mutex.acquire();
         waitingRiderCount++;
-        System.out.println("Rider " + id + " arrives, waiting=" + waitingRiderCount);
+        if (waitingRiderCount > maxWaitingRiders) {
+            maxWaitingRiders = waitingRiderCount;
+        }
+        Logger.log("Rider " + id + " arrives, waiting=" + waitingRiderCount);
         mutex.release();
     }
 
@@ -35,7 +43,7 @@ public class BusStop {
      */
     public void boardBus(int id) throws InterruptedException {
         waitingRiders.acquire();
-        System.out.println("Rider " + id + " boarding");
+        Logger.log("Rider " + id + " boarding");
         allAboard.release();
     }
 
@@ -51,14 +59,12 @@ public class BusStop {
         mutex.acquire();
         int boarding = Math.min(waitingRiderCount, BUS_CAPACITY);
         if (boarding > 0) {
-            System.out.println(
-                    "Bus " + id + " arrives: waiting " + waitingRiderCount + ", boarding " + boarding);
-            // release permits equal to number of riders boarding
+            Logger.log("Bus " + id + " arrives: waiting " + waitingRiderCount + ", boarding " + boarding);
             for (int i = 0; i < boarding; i++) {
                 waitingRiders.release();
             }
         } else {
-            System.out.println("Bus " + id + " arrives: no riders, departing");
+            Logger.log("Bus " + id + " arrives: no riders, departing");
         }
         mutex.release();
         return boarding;
@@ -74,14 +80,27 @@ public class BusStop {
      * @throws InterruptedException if interrupted while waiting
      */
     public void busDeparts(int id, int boarded) throws InterruptedException {
-        // wait for all boarded riders to signal they are on board
         for (int i = 0; i < boarded; i++) {
             allAboard.acquire();
         }
         mutex.acquire();
         waitingRiderCount -= boarded;
-        System.out.println(
-                "Bus " + id + " departs: boarded " + boarded + ", waiting=" + waitingRiderCount);
+        totalBoardedRiders.addAndGet(boarded);
+        Logger.log("Bus " + id + " departs: boarded " + boarded + ", waiting=" + waitingRiderCount);
         mutex.release();
+    }
+
+    /**
+     * @return The total number of riders that have boarded all buses.
+     */
+    public int getTotalBoardedRiders() {
+        return totalBoardedRiders.get();
+    }
+
+    /**
+     * @return The maximum number of riders that were waiting at the bus stop at any one time.
+     */
+    public int getMaxWaitingRiders() {
+        return maxWaitingRiders;
     }
 }

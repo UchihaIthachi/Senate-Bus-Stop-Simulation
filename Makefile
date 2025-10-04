@@ -23,6 +23,10 @@ compile:
 run: compile
 	java -cp $(BIN_DIR) Main
 
+# Runs a quick simulation for testing purposes
+test: compile
+	java -cp $(BIN_DIR) Main --riders 20 --buses 5 --meanRiderMs 100 --meanBusMs 500 --seed 42
+
 # Remove compiled classes
 clean:
 	rm -rf $(BIN_DIR)
