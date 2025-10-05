@@ -1,79 +1,81 @@
-Bus and Riders Synchronization Simulation – Compile and Run Instructions
+# Bus and Riders Synchronization Simulation – How to Compile and Run
 
-This project contains Java source files implementing the Senate Bus synchronization problem. You can build and run the simulation using either the provided **Makefile** or manual Java commands.
+This program implements the Senate Bus synchronization problem in Java.
+By default it runs in dynamic mode: buses keep arriving until all riders
+are served (matches the lab note “buses and riders will continue to arrive
+throughout the day”).
 
-## Using the Makefile (recommended)
+## Prerequisites
 
-The Makefile offers simple targets to compile, run, and clean the project. Ensure you have `make` and a JDK installed.
+* Java JDK 11 or newer on your PATH (java, javac).
+* Optional: make (for the Makefile targets).
 
-1. **Compile the project**
+## Quick Start (recommended)
 
-   ```
-   make
-   ```
+1. Compile:
+   $ make
 
-   or explicitly:
+2. Run (dynamic buses; finishes when all riders have boarded):
+   $ make run
 
-   ```
-   make compile
-   ```
+3. Take a screenshot of the terminal output showing arrivals, boarding,
+   and departures (for submission).
 
-   This command creates the `bin/` directory (if it does not exist) and compiles all source files from `src/` into it.
+## Fixed-Bus Demo (optional)
 
-2. **Run the simulation**
+To demonstrate starvation with a fixed number of buses:
+$ make run ARGS="--buses 5"
 
-   ```
-   make run
-   ```
+## Custom Runs (override defaults)
 
-   This command first compiles the project (if necessary) and then runs the `Main` class from the `bin` directory.
+You can pass arguments through the Makefile via ARGS. Examples:
 
-3. **Clean compiled classes**
+* Change rider count and seed:
+  $ make run ARGS="--riders 200 --seed 42"
 
-   ```
-   make clean
-   ```
+* Faster demo (short inter-arrivals):
+  $ make run ARGS="--meanRiderMs 100 --meanBusMs 500 --seed 42"
 
-   This removes the `bin/` directory and all compiled `.class` files.
+## Arguments
 
-## Using inline Java commands
+--riders N           Total number of riders to generate (default: 100)
+--buses N            Fixed-bus mode if N > 0. If 0 or omitted, dynamic mode.
+--meanRiderMs ms     Mean rider inter-arrival in milliseconds (default: 30000)
+--meanBusMs ms       Mean bus inter-arrival in milliseconds (default: 1200000)
+--seed S             Random seed for reproducible runs (optional)
 
-If you prefer not to use the Makefile, you can compile and run the program directly with the Java compiler and runtime. Navigate to the project root (where `src/` resides) and run:
+## Manual Compilation (no Makefile)
 
-1. **Compile**
+1. Create bin directory if needed:
+   $ mkdir -p bin
 
-   ```
-   javac -d bin src/*.java
-   ```
+2. Compile all sources:
+   $ javac -d bin src/*.java
 
-   This command compiles all `.java` files in the `src/` directory and places the resulting `.class` files into a `bin/` directory. Create the `bin` directory first if it does not exist.
+3. Run (dynamic by default):
+   $ java -cp bin Main
 
-2. **Run**
+4. Run with custom arguments:
+   $ java -cp bin Main --riders 150 --meanRiderMs 200 --seed 123
 
-   ```
-   java -cp bin Main
-   ```
+## What you should see
 
-   This runs the `Main` class, which starts the simulation.
+* Rider arrivals with the current waiting count, e.g.:
+  Rider 12 arrives, waiting=13
+* Bus arrival with snapshot and batch size (capacity 50):
+  Bus 3 arrives: waiting 79, boarding 50
+* Exactly “boarding” riders print “Rider X boarding”
+* Bus departure after all permitted riders signal:
+  Bus 3 departs: boarded 50, waiting=29
 
-## Command-Line Arguments
+## Notes
 
-You can override the default simulation parameters by passing command-line arguments when running `Main.java`.
+* Dynamic mode prevents work starvation: buses keep arriving until all riders have boarded.
+* Fixed-bus mode can leave riders waiting if all buses arrive too early (expected in that mode).
+* Default means match the lab: rider mean 30 s, bus mean 20 min (use smaller values for demos).
 
-- `--riders <N>`: Sets the total number of riders to generate (default: 100).
-- `--buses <N>`: Sets the total number of buses to generate (default: 3).
-- `--meanRiderMs <ms>`: Sets the mean rider inter-arrival time in milliseconds (default: 30000).
-- `--meanBusMs <ms>`: Sets the mean bus inter-arrival time in milliseconds (default: 1200000).
-- `--seed <S>`: Sets the seed for the random number generator for a deterministic run.
+## Files included
 
-Example of a quick test run:
-```
-java -cp bin Main --riders 20 --buses 5 --meanRiderMs 100 --meanBusMs 500 --seed 42
-```
-
-Make sure you have a Java Development Kit (JDK) installed and available on your system path.
-
-## Windows Note
-
-- **Makefile:** The `make` command is not available on Windows by default. To use the Makefile, run the commands from a terminal that provides Unix-like tools, such as **Git Bash** or the **Windows Subsystem for Linux (WSL)**.
-- **Manual Compilation:** If using the Windows Command Prompt (`cmd.exe`), the `mkdir -p` command will not work. Create the `bin` directory with `mkdir bin` before compiling. The `javac` and `java` commands will work as described.
+* src/BusStop.java, src/Bus.java, src/Rider.java, src/Main.java, src/Logger.java
+* Makefile
+* README.txt (this file)

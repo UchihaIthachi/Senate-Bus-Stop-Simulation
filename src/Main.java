@@ -19,8 +19,8 @@ public class Main {
     public static void main(String[] args) throws InterruptedException {
         // --- Simulation Parameters ---
         int totalRiders = 100;
-        int fixedBuses = 0; // Default to 0, implying dynamic mode unless specified
-        boolean dynamicBuses = false;
+        int fixedBusCount = 0;
+        boolean dynamicMode = true;
         long meanRiderMs = 30_000;
         long meanBusMs = 1_200_000;
         Long seed = null;
@@ -33,7 +33,10 @@ public class Main {
                         totalRiders = Integer.parseInt(args[++i]);
                         break;
                     case "--buses":
-                        fixedBuses = Integer.parseInt(args[++i]);
+                        fixedBusCount = Integer.parseInt(args[++i]);
+                        if (fixedBusCount > 0) {
+                            dynamicMode = false; // Switch to fixed mode if a bus count is given
+                        }
                         break;
                     case "--meanRiderMs":
                         meanRiderMs = Long.parseLong(args[++i]);
@@ -44,11 +47,6 @@ public class Main {
                     case "--seed":
                         seed = Long.parseLong(args[++i]);
                         break;
-                    case "--dynamicBuses":
-                        dynamicBuses = true;
-                        break;
-                    default:
-                        System.err.println("Unknown argument: " + args[i]);
                 }
             }
         } catch (Exception e) {
@@ -56,16 +54,11 @@ public class Main {
             System.exit(1);
         }
 
-        // If --buses is not specified or is 0, enable dynamic mode
-        if (fixedBuses == 0) {
-            dynamicBuses = true;
-        }
-
-        // Create final copies for use in lambdas
+        // --- Create final copies for use in lambdas ---
         final long finalMeanRiderMs = meanRiderMs;
         final long finalMeanBusMs = meanBusMs;
-        final int finalFixedBuses = fixedBuses;
-        final boolean isDynamic = dynamicBuses;
+        final int finalFixedBuses = fixedBusCount;
+        final boolean isDynamic = dynamicMode;
         final int targetRiders = totalRiders;
 
         // --- Initialize RNG and Sleep Functions ---
@@ -79,14 +72,14 @@ public class Main {
             return (long) (-finalMeanBusMs * Math.log(1 - u));
         };
 
-        // --- Shared State and Generators ---
+        // --- Shared State and Thread-Safe Collections ---
         BusStop busStop = new BusStop();
         final AtomicBoolean ridersDoneSpawning = new AtomicBoolean(false);
-        final AtomicInteger busCount = new AtomicInteger(0);
+        final AtomicInteger generatedBusCount = new AtomicInteger(0);
         final List<Thread> riderThreads = Collections.synchronizedList(new ArrayList<>());
         final List<Thread> busThreads = Collections.synchronizedList(new ArrayList<>());
 
-        // Rider generator thread
+        // --- Rider Generator Thread ---
         Thread riderGen = new Thread(() -> {
             for (int i = 0; i < targetRiders; i++) {
                 try {
@@ -100,17 +93,16 @@ public class Main {
                 }
             }
             ridersDoneSpawning.set(true);
-            Logger.log("All " + targetRiders + " riders have been generated.");
         }, "Rider-Generator");
 
-        // Bus generator thread
+        // --- Bus Generator Thread ---
         Thread busGen = new Thread(() -> {
             if (!isDynamic) {
-                // Legacy/demo mode: generate a fixed number of buses
+                // Fixed mode: generate a specific number of buses
                 for (int i = 0; i < finalFixedBuses; i++) {
                     try {
                         Thread.sleep(busSleep.getAsLong());
-                        Thread busThread = new Thread(new Bus(busStop), "Bus-" + (busCount.incrementAndGet()));
+                        Thread busThread = new Thread(new Bus(busStop), "Bus-" + (generatedBusCount.incrementAndGet()));
                         busThreads.add(busThread);
                         busThread.start();
                     } catch (InterruptedException e) {
@@ -118,50 +110,42 @@ public class Main {
                         return;
                     }
                 }
-                return;
-            }
-
-            // Dynamic mode: keep sending buses until all riders are boarded
-            while (true) {
-                if (ridersDoneSpawning.get() && busStop.getTotalBoardedRiders() >= targetRiders) {
-                    Logger.log("All riders boarded. Stopping bus generation.");
-                    break;
-                }
-                try {
-                    Thread.sleep(busSleep.getAsLong());
-                    Thread busThread = new Thread(new Bus(busStop), "Bus-" + (busCount.incrementAndGet()));
-                    busThreads.add(busThread);
-                    busThread.start();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    return;
+            } else {
+                // Dynamic mode: keep sending buses until all riders are boarded
+                while (true) {
+                    if (ridersDoneSpawning.get() && busStop.getTotalBoardedRiders() >= targetRiders) {
+                        break;
+                    }
+                    try {
+                        Thread.sleep(busSleep.getAsLong());
+                        Thread busThread = new Thread(new Bus(busStop), "Bus-" + (generatedBusCount.incrementAndGet()));
+                        busThreads.add(busThread);
+                        busThread.start();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
                 }
             }
         }, "Bus-Generator");
 
         // --- Start Simulation ---
-        String mode = isDynamic ? "Dynamic" : "Fixed (" + finalFixedBuses + " buses)";
-        Logger.log("Starting simulation. Mode: " + mode);
+        String modeStr = isDynamic ? "Dynamic" : "Fixed (" + finalFixedBuses + " buses)";
+        Logger.log("Starting simulation. Mode: " + modeStr);
         riderGen.start();
         busGen.start();
 
-        // --- Wait for Generators to Finish ---
+        // --- Wait for Generators and All Child Threads to Finish ---
         riderGen.join();
         busGen.join();
-
-        // --- Wait for all active threads to complete ---
-        for (Thread t : riderThreads) {
-            t.join();
-        }
-        for (Thread t : busThreads) {
-            t.join();
-        }
+        for (Thread t : riderThreads) t.join();
+        for (Thread t : busThreads) t.join();
 
         // --- Print Final Summary ---
         Logger.log("Simulation complete.");
         System.out.println("\n--- Simulation Summary ---");
-        System.out.println("Mode: " + mode);
-        System.out.println("Buses simulated: " + busCount.get());
+        System.out.println("Mode: " + modeStr);
+        System.out.println("Buses simulated: " + generatedBusCount.get());
         System.out.println("Riders spawned: " + targetRiders);
         System.out.println("Riders boarded: " + busStop.getTotalBoardedRiders());
         System.out.println("Max waiting riders: " + busStop.getMaxWaitingRiders());

@@ -1,174 +1,135 @@
 # 🚌 Senate Bus Stop Synchronization Simulation (Java)
 
-This project implements the **Senate Bus Problem** using Java **semaphores**. It models a bus stop where riders arrive continuously and buses serve them under strict synchronization rules — a classic exercise from _The Little Book of Semaphores_ (p. 211).
+This project implements the **Senate Bus Problem** with Java **semaphores**. It models a bus stop where riders and buses arrive continuously and are coordinated under strict synchronization rules — a classic exercise from _The Little Book of Semaphores_ (§7.4, p. 211).
+
+By default, the simulation runs in **dynamic bus mode**, which prevents work starvation by continuing to generate buses until **all riders** are served.
 
 ---
 
 ## 🧩 Problem Description
 
-- **Rider arrivals:** Exponential inter-arrival time (mean **30 seconds**).
-  Each rider is a thread that announces arrival to the shared `BusStop`, then blocks until a bus allows boarding.
-- **Bus arrivals:** Exponential inter-arrival time (mean **20 minutes**).
-  Each bus is a thread that signals arrival, lets eligible riders board (up to capacity), then departs.
+- **Rider arrivals:** Poisson process (exponential inter-arrival), mean **30 seconds**. Each rider thread announces arrival and waits to board.
+- **Bus arrivals:** Poisson process, mean **20 minutes**. Per the lab note “buses continue to arrive throughout the day,” the default driver keeps sending buses until everyone is served.
 - **Boarding rules:**
 
-  - Only riders who were **already waiting** at bus arrival can board.
-  - Riders who arrive **during** boarding must wait for the **next** bus.
+  - Only riders **already waiting** at bus arrival may board.
+  - Riders arriving **during** boarding wait for the **next** bus.
   - If **no riders** are waiting, the bus departs immediately.
 
-- **Capacity:** A bus boards at most **50** riders.
+- **Capacity:** At most **50** riders per bus.
 
-The synchronization must prevent race conditions, deadlocks, and missed wake-ups, while enforcing capacity and “no late boarding.”
+The solution must avoid race conditions, deadlocks, and missed wake-ups, while guaranteeing liveness and enforcing capacity and no-late-boarding.
 
 ---
 
 ## ⚙️ Solution Overview
 
-We use a **granular locking** approach with **two binary semaphores** and **two counting semaphores** to ensure correctness and liveness:
+We use **granular locking** with two binary semaphores and two counting semaphores:
 
-- `busMutex` — **serializes buses** so only **one** bus is processed at a time (prevents bus–bus races).
-- `mutex` — protects shared counters (e.g., `waitingRiderCount`) in **short** critical sections only (so arrivals aren’t blocked during boarding).
-- `waitingRiders` — **gate** for riders. The bus releases exactly `boarding` permits (where `boarding = min(waitingRiderCount, 50)`).
-- `allAboard` — **barrier** from riders to bus. Each boarding rider signals once; the bus waits for exactly `boarding` signals before departing.
+- `busMutex` — **serializes buses** (only one bus is processed at the stop at a time).
+- `mutex` — protects shared counters (e.g., `waitingRiderCount`) in **very short** critical sections, so new arrivals are never blocked by a bus that’s sleeping or waiting.
+- `waitingRiders` — **gate** for riders; the bus releases exactly `boarding = min(waitingRiderCount, 50)` permits.
+- `allAboard` — **barrier** from riders to bus; each boarding rider signals once; the bus waits for exactly `boarding` signals before departure.
 
-> Patterns used: mutual exclusion, counting semaphores, barrier/rendezvous, and the “I’ll-do-it-for-you” batching style (the bus controls the batch size).
+> Patterns: mutual exclusion, counting semaphores, rendezvous/barrier, and the “I’ll-do-it-for-you” batching style (the bus controls batch size).
+
+**Dynamic vs Fixed mode**
+
+- **Dynamic (default):** buses continue to arrive until `totalBoarded == totalRiders` → **no starvation** by construction.
+- **Fixed:** a fixed number of buses are scheduled. This mode can **starve** (by design) if buses cluster early and later riders have no bus.
 
 ---
 
-## 🚦 Execution Flow
+## 🚦 Execution Flow (high level)
 
-### Rider thread
+1. **Rider**: `riderArrives()` increments `waitingRiderCount` under `mutex`, then waits on `waitingRiders`.
+2. **Bus** (`depart()`):
 
-1. `riderArrives()`: acquire `mutex`, increment `waitingRiderCount`, log; release `mutex`.
-2. Wait on `waitingRiders.acquire()`.
-3. On wake: log “boarding”, then `allAboard.release()`.
+   - Acquire `busMutex` (one bus at a time).
+   - Take a **snapshot** of `waitingRiderCount` under `mutex`, compute `boarding = min(waiting, 50)`.
+   - Release exactly `boarding` permits on `waitingRiders`.
+   - Wait for exactly `boarding` `allAboard` signals (no `mutex` held here).
+   - Under `mutex`, decrement `waitingRiderCount` by `boarding`, log and depart; release `busMutex`.
 
-### Bus thread (`depart()` in `BusStop`)
-
-1. **Serialize:** acquire `busMutex` (one bus at a time).
-2. **Snapshot:** briefly acquire `mutex`, compute
-   `boarding = min(waitingRiderCount, 50)`, log; release `mutex`.
-3. **Permit:** release exactly `boarding` permits on `waitingRiders`.
-   (Late arrivals won’t receive a permit for this bus.)
-4. **Wait:** optionally sleep to simulate boarding (no locks held), then wait for `boarding` signals on `allAboard`.
-5. **Update & depart:** briefly acquire `mutex`, decrement `waitingRiderCount` by `boarding`, update metrics, log departure; release `mutex`.
-6. **Release:** release `busMutex`.
-
-> **Crucial:** `mutex` is **never** held while sleeping or waiting on `allAboard`, so **new riders can still arrive** during boarding.
+**Crucial:** `mutex` is **never** held while sleeping or waiting on other semaphores → prevents deadlock and lets arrivals proceed concurrently.
 
 ---
 
 ## ✅ Correctness Guarantees
 
-- **Capacity:** ≤ 50 riders per bus (`boarding = min(waiting, 50)`).
-- **No late boarding:** Riders arriving during boarding **do not** get a permit for the current bus.
-- **No early departure:** Bus waits for **exactly** `boarding` `allAboard` signals.
-- **Deadlock-free:** `busMutex` serializes buses; `mutex` is short-held and never around blocking waits.
-- **Race-free counters:** All accesses to `waitingRiderCount` (and metrics) are under `mutex`.
-- **Robustness:** Semaphore acquires/releases are paired in `try/finally`.
+- **Liveness (Dynamic Mode):** buses keep arriving until **all riders** are boarded → **no starvation**.
+- **Capacity:** `boarding = min(waiting, 50)` ensures at most 50 board.
+- **No late boarding:** permits are released **once** for the snapshot; late arrivals don’t receive a permit for the current bus.
+- **No early departure:** bus waits for **exactly** `boarding` `allAboard` signals.
+- **Deadlock-free:** buses are serialized (`busMutex`); `mutex` is short-held and never while blocking on other semaphores.
+- **Race-free counters:** shared metrics are updated under `mutex` only.
 
 ---
 
-## 🧪 Validation & What to Look For
+## 💻 Running the Simulation
 
-- During a bus’s boarding phase, **new “Rider N arrives…” logs still appear** → arrivals aren’t blocked.
+**Using Makefile (recommended)**
+
+```bash
+make            # compile
+make run        # run with defaults (dynamic mode)
+make test       # quick deterministic demo (short means, fixed seed, dynamic)
+make clean      # remove bin/
+```
+
+**Manual commands**
+
+```bash
+javac -d bin src/*.java
+java -cp bin Main                 # dynamic by default
+java -cp bin Main --buses 5       # fixed mode (may starve by design)
+```
+
+**Custom configuration (via Makefile ARGS)**
+
+```bash
+make run ARGS="--riders 200 --meanRiderMs 100 --meanBusMs 500 --seed 42"
+# Flags:
+#   --riders <N>         total riders (default 100)
+#   --buses <N>          fixed-bus mode if N>0; dynamic if 0 or omitted
+#   --meanRiderMs <ms>   mean rider inter-arrival (default 30000)
+#   --meanBusMs <ms>     mean bus inter-arrival (default 1200000)
+#   --seed <S>           RNG seed for reproducibility
+```
+
+---
+
+## 🧪 Sanity Checks (what graders should see)
+
+- While a bus is boarding, **new “Rider … arrives”** logs still appear → arrivals not blocked.
 - For each bus:
 
-  - Log shows: `arrives: waiting X, boarding K` → **K ≤ 50**.
+  - `arrives: waiting X, boarding K` with **K ≤ 50**.
   - Exactly **K** “Rider … boarding” lines.
-  - Then one `departs: boarded K, waiting=…`.
+  - One `departs: boarded K, waiting=R`.
 
-- No negative `waitingRiderCount`. No riders board after the bus departs.
-
-_(Optionally print a final summary: total riders boarded, max waiting.)_
+- `waitingRiderCount` never negative.
+- **Dynamic mode**: program finishes with `Riders boarded = Riders spawned`.
 
 ---
 
 ## 📂 Project Structure
 
 ```
-Senate-Bus-Stop-Simulation/
+.
 ├── src/
-│   ├── Main.java       # Simulation driver (spawns riders/buses with exponential arrivals)
-│   ├── BusStop.java    # Core synchronization logic (depart(), semaphores, metrics)
+│   ├── Main.java       # Simulation driver (dynamic by default; parses args)
+│   ├── BusStop.java    # Core synchronization (semaphores, depart(), metrics)
 │   ├── Rider.java      # Rider thread
 │   ├── Bus.java        # Bus thread
-│   └── Logger.java     # Timestamped logging helper (e.g., [t=...s][Thread-...])
-├── README.md           # Conceptual overview (this file)
-├── README.txt          # Build & run instructions (Makefile + inline javac/java)
-└── Makefile            # compile / run / clean targets
+│   └── Logger.java     # Timestamped logs: [t=...s][Thread-...]
+├── Makefile            # compile / run / test / clean
+├── README.md           # overview + theory + usage
+└── README.txt          # concise run instructions for submission
 ```
 
 ---
 
-## 💻 Running the Simulation
-
-**Option 1 — Makefile (recommended)**
-
-```bash
-make
-make run
-```
-
-**Option 2 — Manual commands**
-
-```bash
-javac -d bin src/*.java
-java -cp bin Main
-```
-
-**Clean**
-
-```bash
-make clean
-```
-
-> See **README.txt** for both Makefile and inline `javac/java` instructions.
+**Acknowledgment:** Problem adapted from _The Little Book of Semaphores_, §7.4 “The Senate Bus problem” (p. 211).
 
 ---
-
-## ⚙️ Configuration (optional, for demos/tests)
-
-Keep lab defaults in code (mean rider = **30 s**, mean bus = **20 min**).
-For quick demos/CI, you can expose a _fast mode_ via environment variables (if you added it in `Main`):
-
-```bash
-# Example (optional) fast demo: MUCH shorter means + deterministic seed
-CI_FAST=1 SEED_ON=1 MEAN_RIDER_MS=50 MEAN_BUS_MS=200 make run
-```
-
-Defaults must remain the lab’s parameters when not in fast mode.
-
----
-
-## 🧠 Learning Outcomes (ties to the lab brief)
-
-- Practical use of **mutexes and semaphores** to coordinate multiple threads.
-- Designing **deadlock-free** algorithms with **barriers** and **counting semaphores**.
-- Implementing **batching** (“I’ll do it for you”) to meet capacity and ordering constraints.
-- Modeling **exponential inter-arrivals** for realistic asynchronous systems.
-
----
-
-## 🔎 Sample Output (abridged)
-
-```
-[t=297.345s][Bus-1] Bus 1 arrives: waiting 79, boarding 50
-[t=297.352s][Rider-12] Rider 12 boarding
-...
-[t=299.346s][Bus-1] Bus 1 departs: boarded 50, waiting=29
-[main] Simulation complete.
-```
-
----
-
-## 📝 Notes for Viva / Grading
-
-- Why two locks? **`busMutex`** prevents bus–bus overlap; **`mutex`** protects counters but is short-held (arrivals continue during boarding).
-- Why late riders wait? The bus releases **exactly** `boarding` permits; late arrivals get no permit for that bus.
-- Why no early leave? The bus waits for **`boarding` `allAboard`** signals (barrier).
-- Where could deadlock happen originally? Holding a global lock across waiting/sleep led to stalls; we fixed it by narrowing critical sections and serializing buses.
-
----
-
-**Acknowledgment**: Problem statement adapted from _The Little Book of Semaphores_, §7.4 “The Senate Bus problem” (p. 211).
