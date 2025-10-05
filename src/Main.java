@@ -3,6 +3,9 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.LongSupplier;
 
 /**
  * Entry point for the bus and rider simulation.
@@ -11,22 +14,18 @@ import java.util.concurrent.ThreadLocalRandom;
  */
 public class Main {
 
-    // Simulation parameters with default values from the spec
-    private static int totalRiders = 100;
-    private static int totalBuses = 3;
-    private static double meanRiderInterval = 30000.0; // 30 seconds
-    private static double meanBusInterval = 1200000.0; // 20 minutes
-    private static Long rngSeed = null; // Use non-deterministic RNG by default
-
-    // Shared state
     public static final long START_TIME = System.nanoTime();
-    private static Random rng = null;
 
-    /**
-     * Parses command-line arguments to override simulation parameters.
-     * Example: --riders 120 --buses 3 --meanRiderMs 30000 --meanBusMs 1200000 --seed 42
-     */
-    private static void parseArgs(String[] args) {
+    public static void main(String[] args) throws InterruptedException {
+        // --- Simulation Parameters ---
+        int totalRiders = 100;
+        int fixedBuses = 0; // Default to 0, implying dynamic mode unless specified
+        boolean dynamicBuses = false;
+        long meanRiderMs = 30_000;
+        long meanBusMs = 1_200_000;
+        Long seed = null;
+
+        // --- Parse Command-Line Arguments ---
         try {
             for (int i = 0; i < args.length; i++) {
                 switch (args[i]) {
@@ -34,16 +33,19 @@ public class Main {
                         totalRiders = Integer.parseInt(args[++i]);
                         break;
                     case "--buses":
-                        totalBuses = Integer.parseInt(args[++i]);
+                        fixedBuses = Integer.parseInt(args[++i]);
                         break;
                     case "--meanRiderMs":
-                        meanRiderInterval = Double.parseDouble(args[++i]);
+                        meanRiderMs = Long.parseLong(args[++i]);
                         break;
                     case "--meanBusMs":
-                        meanBusInterval = Double.parseDouble(args[++i]);
+                        meanBusMs = Long.parseLong(args[++i]);
                         break;
                     case "--seed":
-                        rngSeed = Long.parseLong(args[++i]);
+                        seed = Long.parseLong(args[++i]);
+                        break;
+                    case "--dynamicBuses":
+                        dynamicBuses = true;
                         break;
                     default:
                         System.err.println("Unknown argument: " + args[i]);
@@ -53,70 +55,101 @@ public class Main {
             System.err.println("Error parsing arguments: " + e.getMessage());
             System.exit(1);
         }
-    }
 
-    /**
-     * Returns a random double. Uses a seeded RNG if a seed was provided,
-     * otherwise uses the thread-local random number generator.
-     */
-    public static double nextDouble() {
-        if (rng != null) {
-            return rng.nextDouble();
-        }
-        return ThreadLocalRandom.current().nextDouble();
-    }
-
-    public static void main(String[] args) throws InterruptedException {
-        parseArgs(args);
-
-        // Initialize RNG if a seed was provided
-        if (rngSeed != null) {
-            rng = new Random(rngSeed);
+        // If --buses is not specified or is 0, enable dynamic mode
+        if (fixedBuses == 0) {
+            dynamicBuses = true;
         }
 
+        // Create final copies for use in lambdas
+        final long finalMeanRiderMs = meanRiderMs;
+        final long finalMeanBusMs = meanBusMs;
+        final int finalFixedBuses = fixedBuses;
+        final boolean isDynamic = dynamicBuses;
+        final int targetRiders = totalRiders;
+
+        // --- Initialize RNG and Sleep Functions ---
+        Random rng = (seed != null) ? new Random(seed) : null;
+        LongSupplier riderSleep = () -> {
+            double u = (rng != null ? rng.nextDouble() : ThreadLocalRandom.current().nextDouble());
+            return (long) (-finalMeanRiderMs * Math.log(1 - u));
+        };
+        LongSupplier busSleep = () -> {
+            double u = (rng != null ? rng.nextDouble() : ThreadLocalRandom.current().nextDouble());
+            return (long) (-finalMeanBusMs * Math.log(1 - u));
+        };
+
+        // --- Shared State and Generators ---
         BusStop busStop = new BusStop();
-        List<Thread> riderThreads = Collections.synchronizedList(new ArrayList<>());
-        List<Thread> busThreads = Collections.synchronizedList(new ArrayList<>());
+        final AtomicBoolean ridersDoneSpawning = new AtomicBoolean(false);
+        final AtomicInteger busCount = new AtomicInteger(0);
+        final List<Thread> riderThreads = Collections.synchronizedList(new ArrayList<>());
+        final List<Thread> busThreads = Collections.synchronizedList(new ArrayList<>());
 
-        // Thread to generate riders
+        // Rider generator thread
         Thread riderGen = new Thread(() -> {
-            for (int i = 1; i <= totalRiders; i++) {
+            for (int i = 0; i < targetRiders; i++) {
                 try {
-                    double u = nextDouble();
-                    long sleepTime = (long) (-meanRiderInterval * Math.log(1 - u));
-                    Thread.sleep(sleepTime);
-                    Thread riderThread = new Thread(new Rider(busStop));
+                    Thread.sleep(riderSleep.getAsLong());
+                    Thread riderThread = new Thread(new Rider(busStop), "Rider-" + (i + 1));
                     riderThreads.add(riderThread);
                     riderThread.start();
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
+                    return;
                 }
             }
-        });
+            ridersDoneSpawning.set(true);
+            Logger.log("All " + targetRiders + " riders have been generated.");
+        }, "Rider-Generator");
 
-        // Thread to generate buses
+        // Bus generator thread
         Thread busGen = new Thread(() -> {
-            for (int i = 1; i <= totalBuses; i++) {
+            if (!isDynamic) {
+                // Legacy/demo mode: generate a fixed number of buses
+                for (int i = 0; i < finalFixedBuses; i++) {
+                    try {
+                        Thread.sleep(busSleep.getAsLong());
+                        Thread busThread = new Thread(new Bus(busStop), "Bus-" + (busCount.incrementAndGet()));
+                        busThreads.add(busThread);
+                        busThread.start();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                }
+                return;
+            }
+
+            // Dynamic mode: keep sending buses until all riders are boarded
+            while (true) {
+                if (ridersDoneSpawning.get() && busStop.getTotalBoardedRiders() >= targetRiders) {
+                    Logger.log("All riders boarded. Stopping bus generation.");
+                    break;
+                }
                 try {
-                    double u = nextDouble();
-                    long sleepTime = (long) (-meanBusInterval * Math.log(1 - u));
-                    Thread.sleep(sleepTime);
-                    Thread busThread = new Thread(new Bus(busStop));
+                    Thread.sleep(busSleep.getAsLong());
+                    Thread busThread = new Thread(new Bus(busStop), "Bus-" + (busCount.incrementAndGet()));
                     busThreads.add(busThread);
                     busThread.start();
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
+                    return;
                 }
             }
-        });
+        }, "Bus-Generator");
 
-        // Start generator threads and wait for them to finish
+        // --- Start Simulation ---
+        String mode = isDynamic ? "Dynamic" : "Fixed (" + finalFixedBuses + " buses)";
+        Logger.log("Starting simulation. Mode: " + mode);
         riderGen.start();
         busGen.start();
+
+        // --- Wait for Generators to Finish ---
         riderGen.join();
         busGen.join();
 
-        // Wait for all spawned rider and bus threads to complete
+        // --- Wait for all active threads to complete ---
         for (Thread t : riderThreads) {
             t.join();
         }
@@ -124,11 +157,12 @@ public class Main {
             t.join();
         }
 
-        // Print final summary
+        // --- Print Final Summary ---
         Logger.log("Simulation complete.");
         System.out.println("\n--- Simulation Summary ---");
-        System.out.println("Buses simulated: " + totalBuses);
-        System.out.println("Riders spawned: " + totalRiders);
+        System.out.println("Mode: " + mode);
+        System.out.println("Buses simulated: " + busCount.get());
+        System.out.println("Riders spawned: " + targetRiders);
         System.out.println("Riders boarded: " + busStop.getTotalBoardedRiders());
         System.out.println("Max waiting riders: " + busStop.getMaxWaitingRiders());
         System.out.println("--------------------------");

@@ -20,12 +20,13 @@ compile:
 	javac -d $(BIN_DIR) $(SOURCES)
 
 # Run the simulation with default lab parameters. Accepts command-line args via ARGS.
+# The default mode is dynamic buses, as per the lab specification.
 run: compile
-	java -cp $(BIN_DIR) Main $(ARGS)
+	java -cp $(BIN_DIR) Main --dynamicBuses $(ARGS)
 
 # Runs a quick, deterministic simulation for CI/testing with a high volume of riders
 test: compile
-	java -cp $(BIN_DIR) Main --riders 100 --buses 5 --meanRiderMs 5 --meanBusMs 20 --seed 42
+	java -cp $(BIN_DIR) Main --riders 100 --dynamicBuses --meanRiderMs 5 --meanBusMs 20 --seed 42
 
 # Runs a minimal "smoke test" to ensure the program runs
 smoke-test: compile
