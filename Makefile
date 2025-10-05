@@ -19,14 +19,18 @@ compile:
 	mkdir -p $(BIN_DIR)
 	javac -d $(BIN_DIR) $(SOURCES)
 
-# Run the simulation
+# Run the simulation with default lab parameters. Accepts command-line args via ARGS.
 run: compile
-	java -cp $(BIN_DIR) Main
+	java -cp $(BIN_DIR) Main $(ARGS)
 
-# Runs a quick simulation for testing purposes
+# Runs a quick, deterministic simulation for CI/testing with a high volume of riders
 test: compile
+	java -cp $(BIN_DIR) Main --riders 100 --buses 5 --meanRiderMs 5 --meanBusMs 20 --seed 42
+
+# Runs a minimal "smoke test" to ensure the program runs
+smoke-test: compile
 	java -cp $(BIN_DIR) Main --riders 2 --buses 1 --meanRiderMs 10 --meanBusMs 50 --seed 4
 
-# Remove compiled classes
+# Remove compiled classes and other generated files
 clean:
-	rm -rf $(BIN_DIR)
+	rm -rf $(BIN_DIR) output
