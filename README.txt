@@ -8,7 +8,9 @@ throughout the day”).
 ## Prerequisites
 
 * Java JDK 11 or newer on your PATH (java, javac).
-* Optional: make (for the Makefile targets).
+* Optional: `make` (for the Makefile targets).
+* For Windows users: It is recommended to use a shell like Git Bash or WSL
+  to ensure commands like `make` and `mkdir -p` work correctly.
 
 ## Quick Start (recommended)
 
@@ -48,6 +50,7 @@ You can pass arguments through the Makefile via ARGS. Examples:
 
 1. Create bin directory if needed:
    $ mkdir -p bin
+   (On Windows CMD, you may need to use `mkdir bin` instead)
 
 2. Compile all sources:
    $ javac -d bin src/*.java
