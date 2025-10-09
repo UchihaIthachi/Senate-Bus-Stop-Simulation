@@ -1,33 +1,19 @@
 /**
- * A simple, centralized logging utility for the simulation.
- *
- * This class provides a static method to print timestamped messages to the
- * console. It ensures that all log output is consistent in format, showing
- * the elapsed time since the simulation began and the name of the thread
- * that generated the message. This helps in debugging and understanding the
- * sequence of concurrent events.
+ * A simple logging utility to print timestamped messages from threads.
+ * This helps in tracing the order of concurrent events during the simulation.
  */
 public class Logger {
     /**
-     * Prints a formatted message to standard output.
+     * Prints a message to the console, prepended with the elapsed simulation time
+     * and the name of the calling thread.
      *
-     * The log entry includes:
-     * 1.  A timestamp in seconds (e.g., "[t=1.234s]") representing the
-     *     elapsed time since {@link Main#START_TIME}.
-     * 2.  The name of the current thread (e.g., "[Rider-1]").
-     * 3.  The log message itself.
-     *
-     * This method is thread-safe because {@code System.out.printf} is
-     * inherently synchronized.
-     *
-     * @param message The message to be logged.
+     * @param message The message to log.
      */
     public static void log(String message) {
-        // Calculate elapsed time in seconds with millisecond precision.
+        // Calculate elapsed time in seconds since the simulation started.
         double s = (System.nanoTime() - Main.START_TIME) / 1_000_000_000.0;
-        // Get the name of the currently executing thread.
         String thread = Thread.currentThread().getName();
-        // Print the formatted string to the console.
+        // System.out.printf is thread-safe.
         System.out.printf("[t=%.3fs][%s] %s%n", s, thread, message);
     }
 }

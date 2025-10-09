@@ -8,38 +8,24 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.LongSupplier;
 
 /**
- * The main driver for the Senate Bus Problem simulation.
- *
- * This class is responsible for:
- * 1.  Parsing command-line arguments to configure simulation parameters such as
- *     the number of riders, buses, inter-arrival times, and RNG seed.
- * 2.  Initializing the shared {@link BusStop} object and other state variables.
- * 3.  Creating and starting two primary generator threads:
- *     - A Rider Generator: Spawns new {@link Rider} threads at random intervals
- *       following a Poisson process.
- *     - A Bus Generator: Spawns new {@link Bus} threads, also following a
- *       Poisson process. This generator can operate in two modes:
- *       a) Fixed Mode: A set number of buses are created.
- *       b) Dynamic Mode (default): Buses are generated indefinitely until all
- *          riders have been served, preventing rider starvation.
- * 4.  Waiting for all threads to complete their execution and then printing a
- *     final summary of the simulation results.
+ * Main class to drive the Senate Bus simulation.
+ * It parses arguments, initializes threads for riders and buses with
+ * exponential inter-arrival times, and runs the simulation.
  */
 public class Main {
 
-    // Global start time for timestamped logging.
     public static final long START_TIME = System.nanoTime();
 
     public static void main(String[] args) throws InterruptedException {
-        // --- Default Simulation Parameters ---
+        // --- Simulation Parameters (with defaults) ---
         int totalRiders = 100;
-        int fixedBusCount = 0; // A value > 0 triggers fixed bus mode.
+        int fixedBusCount = 0; // If > 0, triggers fixed mode.
         boolean dynamicMode = true;
-        long meanRiderMs = 30_000;  // 30 seconds
-        long meanBusMs = 1_200_000; // 20 minutes
-        Long seed = null; // No seed by default, for non-deterministic runs.
+        long meanRiderMs = 30_000;  // Corresponds to 30 sec mean inter-arrival
+        long meanBusMs = 1_200_000; // Corresponds to 20 min mean inter-arrival
+        Long seed = null;
 
-        // --- Simple Command-Line Argument Parsing ---
+        // --- Parse Command-Line Arguments ---
         try {
             for (int i = 0; i < args.length; i++) {
                 switch (args[i]) {
@@ -49,7 +35,7 @@ public class Main {
                     case "--buses":
                         fixedBusCount = Integer.parseInt(args[++i]);
                         if (fixedBusCount > 0) {
-                            dynamicMode = false; // Override default if a bus count is specified.
+                            dynamicMode = false; // Fixed bus count overrides dynamic mode.
                         }
                         break;
                     case "--meanRiderMs":
@@ -65,25 +51,20 @@ public class Main {
             }
         } catch (Exception e) {
             System.err.println("Error parsing arguments: " + e.getMessage());
-            System.err.println("Usage: java Main [--riders N] [--buses N] [--meanRiderMs M] [--meanBusMs M] [--seed S]");
             System.exit(1);
         }
 
-        // --- Create final (or effectively final) copies for use in lambdas ---
-        // Local variables used inside a lambda expression must be final or
-        // effectively final. We create explicit final copies for clarity.
+        // --- Final copies for use in lambdas ---
         final long finalMeanRiderMs = meanRiderMs;
         final long finalMeanBusMs = meanBusMs;
         final int finalFixedBuses = fixedBusCount;
         final boolean isDynamic = dynamicMode;
         final int targetRiders = totalRiders;
 
-        // --- Initialize RNG and Sleep Functions for Poisson Process Simulation ---
-        // If a seed is provided, use a single Random instance for deterministic behavior.
-        // Otherwise, use the thread-safe ThreadLocalRandom for better performance.
-        final Random rng = (seed != null) ? new Random(seed) : null;
+        // --- RNG and Arrival Time Simulation ---
         // Lambdas to generate sleep times based on an exponential distribution,
-        // simulating a Poisson arrival process.
+        // simulating a Poisson arrival process as required.
+        Random rng = (seed != null) ? new Random(seed) : null;
         LongSupplier riderSleep = () -> {
             double u = (rng != null ? rng.nextDouble() : ThreadLocalRandom.current().nextDouble());
             return (long) (-finalMeanRiderMs * Math.log(1 - u));
@@ -93,15 +74,15 @@ public class Main {
             return (long) (-finalMeanBusMs * Math.log(1 - u));
         };
 
-        // --- Shared State and Thread-Safe Collections ---
-        final BusStop busStop = new BusStop();
+        // --- Shared State ---
+        BusStop busStop = new BusStop();
         final AtomicBoolean ridersDoneSpawning = new AtomicBoolean(false);
         final AtomicInteger generatedBusCount = new AtomicInteger(0);
         final List<Thread> riderThreads = Collections.synchronizedList(new ArrayList<>());
         final List<Thread> busThreads = Collections.synchronizedList(new ArrayList<>());
 
         // --- Rider Generator Thread ---
-        // This thread creates and starts all the rider threads for the simulation.
+        // Creates a fixed number of rider threads with simulated arrival times.
         Thread riderGen = new Thread(() -> {
             for (int i = 0; i < targetRiders; i++) {
                 try {
@@ -110,19 +91,18 @@ public class Main {
                     riderThreads.add(riderThread);
                     riderThread.start();
                 } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt(); // Preserve interrupted status.
+                    Thread.currentThread().interrupt();
                     return;
                 }
             }
-            ridersDoneSpawning.set(true); // Signal that all riders have been created.
+            ridersDoneSpawning.set(true);
         }, "Rider-Generator");
 
         // --- Bus Generator Thread ---
-        // This thread creates bus threads based on the selected mode.
+        // Creates bus threads according to the selected mode (fixed or dynamic).
         Thread busGen = new Thread(() -> {
             if (!isDynamic) {
-                // Fixed mode: generate a specific number of buses and then stop.
-                // This mode can result in rider starvation if not enough buses are provided.
+                // Fixed mode: generate a specific number of buses.
                 for (int i = 0; i < finalFixedBuses; i++) {
                     try {
                         Thread.sleep(busSleep.getAsLong());
@@ -135,12 +115,11 @@ public class Main {
                     }
                 }
             } else {
-                // Dynamic mode: keep sending buses until all riders have boarded.
-                // This mode guarantees liveness for all riders.
+                // Dynamic mode: keep sending buses until all riders are boarded.
+                // This prevents rider starvation as per the lab notes.
                 while (true) {
-                    // The termination condition: all riders have been spawned AND have successfully boarded.
                     if (ridersDoneSpawning.get() && busStop.getTotalBoardedRiders() >= targetRiders) {
-                        break;
+                        break; // Exit condition for dynamic mode.
                     }
                     try {
                         Thread.sleep(busSleep.getAsLong());
@@ -155,17 +134,15 @@ public class Main {
             }
         }, "Bus-Generator");
 
-        // --- Start Simulation ---
+        // --- Start and Wait for Simulation to Complete ---
         String modeStr = isDynamic ? "Dynamic" : "Fixed (" + finalFixedBuses + " buses)";
-        Logger.log("Starting simulation. Mode: " + modeStr + ", Riders: " + targetRiders);
+        Logger.log("Starting simulation. Mode: " + modeStr);
         riderGen.start();
         busGen.start();
 
-        // --- Wait for All Threads to Complete ---
-        // First, wait for the generator threads to finish their work.
+        // Wait for all threads to finish before printing the summary.
         riderGen.join();
         busGen.join();
-        // Then, ensure all spawned rider and bus threads have also completed.
         for (Thread t : riderThreads) t.join();
         for (Thread t : busThreads) t.join();
 
